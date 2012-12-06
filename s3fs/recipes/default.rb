@@ -3,43 +3,50 @@
 end
 
 # install fuse
-remote_file "/tmp/fuse-#{ node[:fuse][:version] }.tar.gz" do
-  source "http://downloads.sourceforge.net/project/fuse/fuse-2.X/#{ node[:fuse][:version] }/fuse-#{ node[:fuse][:version] }.tar.gz"
+fuse_dir = ::File.join("/tmp","fuse-#{node['s3fs']['fuse_version']}")
+fuse_tar = fuse_dir + ".tar.gz"
+
+remote_file fuse_tar do
+  source node['s3fs']['fuse_url']
   mode 0644
 end
 
-bash "install fuse" do
+execute "extract fuse" do
   cwd "/tmp"
-  code <<-EOH
-  tar zxvf fuse-#{ node[:fuse][:version] }.tar.gz
-  cd fuse-#{ node[:fuse][:version] }
-  ./configure --prefix=/usr
-  make
-  sudo make install
-
-  EOH
-
-  not_if { File.exists?("/usr/bin/fusermount") }
+  command "tar zxvf #{fuse_tar}"
+  not_if { ::File.exists?(fuse_dir) }
 end
 
-remote_file "/tmp/s3fs-#{ node[:s3fs][:version] }.tar.gz" do
-  source "http://s3fs.googlecode.com/files/s3fs-#{ node[:s3fs][:version] }.tar.gz"
+fuse_touch_file = ::File.join(fuse_dir, "installed")
+execute "install fuse" do
+  cwd fuse_dir
+  command "./configure --prefix=/usr && make && make install && touch #{fuse_touch_file}"
+  not_if { ::File.exists?(fuse_touch_file) }
+end
+
+# install s3fs
+s3fs_dir = ::File.join("/tmp","s3fs-#{node['s3fs']['s3fs_version']}")
+s3fs_tar = s3fs_dir + ".tar.gz"
+remote_file s3fs_tar do
+  source node['s3fs']['s3fs_url']
   mode 0644
 end
 
-bash "install s3fs" do
+execute "extract s3fs" do
   cwd "/tmp"
-  code <<-EOH
-  tar zxvf s3fs-#{ node[:s3fs][:version] }.tar.gz
-  cd s3fs-#{ node[:s3fs][:version] }
-  ./configure --prefix=/usr
-  make
-  sudo make install
-  sudo mkdir -p /mnt/#{ node[:s3][:bucket] }
-  sudo bash -c 'export AWSACCESSKEYID=#{ node[:access_key] }; export AWSSECRETACCESSKEY=#{ node[:secret_key] }; s3fs #{ node[:s3][:bucket] } /mnt/#{ node[:s3][:bucket] } -o allow_other'
-  EOH
-
-  not_if { File.exists?("/usr/bin/s3fs") }
+  command "tar zxvf #{s3fs_tar}"
+  not_if { ::File.exists?(s3fs_dir) }
 end
 
+file "/etc/passwd-s3fs" do
+  owner "root"
+  mode "0600"
+  content node['s3fs']['access_key'] + ":" + node['s3fs']['secret_key']
+end
 
+s3fs_touch_file = ::File.join(s3fs_dir, "installed")
+execute "install s3fs" do
+  cwd s3fs_dir
+  command "./configure --prefix=/usr && make && make install && touch #{s3fs_touch_file}"
+  not_if { ::File.exists?(s3fs_touch_file) }
+end
